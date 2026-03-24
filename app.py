@@ -14,7 +14,11 @@ if password == "123456":
     GID = "444452246"
     csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
-    @st.cache_data(ttl=300)
+    if st.button("🔄 手动刷新数据"):
+        st.cache_data.clear()
+        st.success("已刷新数据")
+
+    @st.cache_data(ttl=60)
     def load_data():
         df = pd.read_csv(csv_url)
         df.columns = [c.strip() for c in df.columns]
@@ -39,11 +43,22 @@ if password == "123456":
         return df
 
     df = load_data()
-    st.info("当前使用 Google 表格中的最新数据")
+
+    st.info("当前使用 Google 表格中的最新数据（自动刷新 + 可手动刷新）")
 
     latest_date = df["日期"].max()
-    prev_date = latest_date - timedelta(days=1)
-    lw_date = latest_date - timedelta(days=7)
+
+    # 日期选择器
+    all_dates = sorted(df["日期"].dt.date.unique().tolist())
+    selected_date = st.sidebar.selectbox(
+        "选择查看日期：",
+        all_dates,
+        index=len(all_dates) - 1
+    )
+
+    selected_date = pd.Timestamp(selected_date)
+    prev_date = selected_date - timedelta(days=1)
+    lw_date = selected_date - timedelta(days=7)
 
     st.sidebar.header("图表筛选设置")
     view_mode = st.sidebar.radio("1. 选择分析维度：", ["总收益", "预算维度", "渠道维度"])
@@ -69,7 +84,7 @@ if password == "123456":
 
     def get_comp(dim=None):
         if dim:
-            t = df[df["日期"] == latest_date].groupby(dim)["收入"].sum().reset_index()
+            t = df[df["日期"] == selected_date].groupby(dim)["收入"].sum().reset_index()
             p = df[df["日期"] == prev_date].groupby(dim)["收入"].sum().reset_index()
             l = df[df["日期"] == lw_date].groupby(dim)["收入"].sum().reset_index()
 
@@ -79,7 +94,7 @@ if password == "123456":
             )
             res.columns = [dim, "今日", "昨日", "上周同日"]
         else:
-            t_val = df[df["日期"] == latest_date]["收入"].sum()
+            t_val = df[df["日期"] == selected_date]["收入"].sum()
             p_val = df[df["日期"] == prev_date]["收入"].sum()
             l_val = df[df["日期"] == lw_date]["收入"].sum()
             res = pd.DataFrame(
@@ -94,10 +109,10 @@ if password == "123456":
 
     total_row = get_comp()
 
-    st.subheader(f"📍 实时概览 ({latest_date.date()})")
+    st.subheader(f"📍 实时概览 ({selected_date.date()})")
     m1, m2, m3 = st.columns(3)
-    m1.metric("今日总额", f"¥{total_row['今日'][0]:,.2f}")
-    m2.metric("较昨日", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['DoD涨跌'][0]:,.2f}")
+    m1.metric("当日总额", f"¥{total_row['今日'][0]:,.2f}")
+    m2.metric("较前一日", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['DoD涨跌'][0]:,.2f}")
     m3.metric("较上周同日", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['WoW涨跌'][0]:,.2f}")
 
     st.markdown("---")
@@ -106,7 +121,7 @@ if password == "123456":
     if view_mode == "总收益":
         plot_df = df.groupby("日期")["收入"].sum().reset_index()
         fig = px.line(plot_df, x="日期", y="收入", title="总收益日趋势", markers=True, height=500)
-
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
     elif view_mode == "预算维度":
         if not selected_budgets:
             st.info("请先在左侧选择预算。")
@@ -126,7 +141,7 @@ if password == "123456":
             markers=True,
             height=600
         )
-
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
     else:
         if not selected_channels:
             st.info("请先在左侧选择渠道。")
@@ -146,6 +161,7 @@ if password == "123456":
             markers=True,
             height=600
         )
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
 
     fig.update_layout(hovermode="x unified")
     st.plotly_chart(fig, width="stretch")
@@ -154,12 +170,10 @@ if password == "123456":
     t1, t2 = st.tabs(["🍱 预算明细对比", "🚀 渠道明细对比"])
 
     with t1:
-        budget_df = get_comp("预算")
-        st.dataframe(budget_df, width="stretch")
+        st.dataframe(get_comp("预算"), width="stretch")
 
     with t2:
-        channel_df = get_comp("渠道")
-        st.dataframe(channel_df, width="stretch")
+        st.dataframe(get_comp("渠道"), width="stretch")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
