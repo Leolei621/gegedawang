@@ -153,9 +153,17 @@ if password == "123456":
         lw_label = "无可用上周同日"
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("当日总额", f"¥{total_row['今日'][0]:,.2f}")
-    m2.metric(f"较前一日（{prev_label}）", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['DoD涨跌'][0]:,.2f}")
-    m3.metric(f"较上周同日（{lw_label}）", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['WoW涨跌'][0]:,.2f}")
+    m1.metric("当日收益", f"¥{total_row['今日'][0]:,.2f}")
+    m2.metric(
+        f"前一日收益（{prev_label}）",
+        f"¥{total_row['前一日'][0]:,.2f}",
+        delta=f"{total_row['DoD涨跌'][0]:,.2f}"
+    )
+    m3.metric(
+        f"上周同日收益（{lw_label}）",
+        f"¥{total_row['上周同日'][0]:,.2f}",
+        delta=f"{total_row['WoW涨跌'][0]:,.2f}"
+    )
 
     st.markdown("---")
     st.subheader(f"📈 {view_mode} 趋势追踪")
