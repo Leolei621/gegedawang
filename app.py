@@ -46,19 +46,37 @@ if password == "123456":
 
     st.info("当前使用 Google 表格中的最新数据（自动刷新 + 可手动刷新）")
 
-    latest_date = df["日期"].max()
+    all_dates = sorted(df["日期"].dt.normalize().unique().tolist())
+    latest_date = all_dates[-1]
 
-    # 日期选择器
-    all_dates = sorted(df["日期"].dt.date.unique().tolist())
-    selected_date = st.sidebar.selectbox(
+    selected_date_input = st.sidebar.selectbox(
         "选择查看日期：",
         all_dates,
-        index=len(all_dates) - 1
+        index=len(all_dates) - 1,
+        format_func=lambda x: pd.Timestamp(x).strftime("%Y-%m-%d")
     )
+    selected_date = pd.Timestamp(selected_date_input).normalize()
 
-    selected_date = pd.Timestamp(selected_date)
-    prev_date = selected_date - timedelta(days=1)
-    lw_date = selected_date - timedelta(days=7)
+    def get_latest_available_before(target_date):
+        available = [d for d in all_dates if pd.Timestamp(d).normalize() < target_date]
+        if not available:
+            return None
+        return pd.Timestamp(available[-1]).normalize()
+
+    def get_week_compare_date(target_date):
+        exact_week_date = target_date - timedelta(days=7)
+        normalized_dates = [pd.Timestamp(d).normalize() for d in all_dates]
+
+        if exact_week_date in normalized_dates:
+            return exact_week_date
+
+        available = [d for d in normalized_dates if d < exact_week_date]
+        if not available:
+            return None
+        return available[-1]
+
+    prev_date = get_latest_available_before(selected_date)
+    lw_date = get_week_compare_date(selected_date)
 
     st.sidebar.header("图表筛选设置")
     view_mode = st.sidebar.radio("1. 选择分析维度：", ["总收益", "预算维度", "渠道维度"])
@@ -82,52 +100,80 @@ if password == "123456":
             default=all_channels[:5] if len(all_channels) >= 5 else all_channels
         )
 
+    def get_sum_by_date(target_date, dim=None):
+        if target_date is None:
+            if dim:
+                return pd.DataFrame(columns=[dim, "收入"])
+            return 0
+
+        day_df = df[df["日期"].dt.normalize() == target_date]
+
+        if dim:
+            return day_df.groupby(dim)["收入"].sum().reset_index()
+        return day_df["收入"].sum()
+
     def get_comp(dim=None):
         if dim:
-            t = df[df["日期"] == selected_date].groupby(dim)["收入"].sum().reset_index()
-            p = df[df["日期"] == prev_date].groupby(dim)["收入"].sum().reset_index()
-            l = df[df["日期"] == lw_date].groupby(dim)["收入"].sum().reset_index()
+            t = get_sum_by_date(selected_date, dim)
+            p = get_sum_by_date(prev_date, dim)
+            l = get_sum_by_date(lw_date, dim)
 
             res = (
-                t.merge(p, on=dim, how="left", suffixes=("", "_昨日"))
+                t.merge(p, on=dim, how="left", suffixes=("", "_前一日"))
                  .merge(l, on=dim, how="left", suffixes=("", "_上周"))
             )
-            res.columns = [dim, "今日", "昨日", "上周同日"]
+            res.columns = [dim, "今日", "前一日", "上周同日"]
+            res = res.fillna(0)
         else:
-            t_val = df[df["日期"] == selected_date]["收入"].sum()
-            p_val = df[df["日期"] == prev_date]["收入"].sum()
-            l_val = df[df["日期"] == lw_date]["收入"].sum()
+            t_val = get_sum_by_date(selected_date)
+            p_val = get_sum_by_date(prev_date)
+            l_val = get_sum_by_date(lw_date)
+
             res = pd.DataFrame(
                 [["总计", t_val, p_val, l_val]],
-                columns=["维度", "今日", "昨日", "上周同日"]
+                columns=["维度", "今日", "前一日", "上周同日"]
             )
 
-        res = res.fillna(0)
-        res["DoD涨跌"] = res["今日"] - res["昨日"]
+        res["DoD涨跌"] = res["今日"] - res["前一日"]
         res["WoW涨跌"] = res["今日"] - res["上周同日"]
         return res
 
     total_row = get_comp()
 
     st.subheader(f"📍 实时概览 ({selected_date.date()})")
+
+    if prev_date is not None:
+        prev_label = prev_date.strftime("%Y-%m-%d")
+    else:
+        prev_label = "无可用前一日"
+
+    if lw_date is not None:
+        lw_label = lw_date.strftime("%Y-%m-%d")
+    else:
+        lw_label = "无可用上周同日"
+
     m1, m2, m3 = st.columns(3)
     m1.metric("当日总额", f"¥{total_row['今日'][0]:,.2f}")
-    m2.metric("较前一日", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['DoD涨跌'][0]:,.2f}")
-    m3.metric("较上周同日", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['WoW涨跌'][0]:,.2f}")
+    m2.metric(f"较前一日（{prev_label}）", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['DoD涨跌'][0]:,.2f}")
+    m3.metric(f"较上周同日（{lw_label}）", f"¥{total_row['今日'][0]:,.2f}", delta=f"{total_row['WoW涨跌'][0]:,.2f}")
 
     st.markdown("---")
     st.subheader(f"📈 {view_mode} 趋势追踪")
 
     if view_mode == "总收益":
-        plot_df = df.groupby("日期")["收入"].sum().reset_index()
+        plot_df = df.groupby(df["日期"].dt.normalize())["收入"].sum().reset_index()
+        plot_df.columns = ["日期", "收入"]
         fig = px.line(plot_df, x="日期", y="收入", title="总收益日趋势", markers=True, height=500)
         fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
     elif view_mode == "预算维度":
         if not selected_budgets:
             st.info("请先在左侧选择预算。")
             st.stop()
+
         plot_df = (
             df[df["预算"].isin(selected_budgets)]
+            .assign(日期=df["日期"].dt.normalize())
             .groupby(["日期", "预算"])["收入"]
             .sum()
             .reset_index()
@@ -142,12 +188,15 @@ if password == "123456":
             height=600
         )
         fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
     else:
         if not selected_channels:
             st.info("请先在左侧选择渠道。")
             st.stop()
+
         plot_df = (
             df[df["渠道"].isin(selected_channels)]
+            .assign(日期=df["日期"].dt.normalize())
             .groupby(["日期", "渠道"])["收入"]
             .sum()
             .reset_index()
