@@ -234,9 +234,18 @@ if password == "123456":
 
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
+
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
+
+    # 计算周收入的涨跌（与上周对比）
+    weekly_data['上周收入'] = weekly_data['收入'].shift(1)
+    weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
+    weekly_data['涨跌百分比'] = (weekly_data['涨跌'] / weekly_data['上周收入']) * 100
+
+    # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
 
+    # 绘制每周收入的趋势图
     fig_weekly = px.line(
         weekly_data,
         x='日期',
@@ -245,7 +254,20 @@ if password == "123456":
         markers=True,
         height=500
     )
+
+    # 绘制涨跌百分比的图
+    fig_change = px.bar(
+        weekly_data,
+        x='日期',
+        y='涨跌百分比',
+        title="每周收入涨跌百分比",
+        markers=True,
+        height=500
+    )
+
+    # 显示图表
     st.plotly_chart(fig_weekly, width="stretch")
+    st.plotly_chart(fig_change, width="stretch")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
