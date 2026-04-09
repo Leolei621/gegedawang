@@ -87,6 +87,126 @@ if password == "123456":
             default=all_channels[:5] if len(all_channels) >= 5 else all_channels
         )
 
+    def get_sum_by_date(target_date, dim=None):
+        if target_date is None:
+            if dim:
+                return pd.DataFrame(columns=[dim, "收入"])
+            return 0
+
+        day_df = df[df["日期"].dt.normalize() == target_date]
+
+        if dim:
+            return day_df.groupby(dim)["收入"].sum().reset_index()
+        return day_df["收入"].sum()
+
+    def get_comp(dim=None):
+        if dim:
+            t = get_sum_by_date(selected_date, dim)
+            p = get_sum_by_date(prev_date, dim)
+
+            res = (
+                t.merge(p, on=dim, how="left", suffixes=("", "_前一日"))
+            )
+            res.columns = [dim, "今日", "前一日"]
+            res = res.fillna(0)
+        else:
+            t_val = get_sum_by_date(selected_date)
+            p_val = get_sum_by_date(prev_date)
+
+            res = pd.DataFrame(
+                [["总计", t_val, p_val]],
+                columns=["维度", "今日", "前一日"]
+            )
+
+        res["DoD涨跌"] = res["今日"] - res["前一日"]
+        return res
+
+    total_row = get_comp()
+
+    st.subheader(f"📍 实时概览 ({selected_date.date()})")
+
+    if prev_date is not None:
+        prev_label = prev_date.strftime("%Y-%m-%d")
+    else:
+        prev_label = "无可用前一日"
+
+    m1, m2 = st.columns(2)
+    m1.metric("当日收益", f"¥{total_row['今日'][0]:,.2f}")
+    m2.metric(
+        f"前一日收益（{prev_label}）",
+        f"¥{total_row['前一日'][0]:,.2f}",
+        delta=f"{total_row['DoD涨跌'][0]:,.2f}"
+    )
+
+    st.markdown("---")
+    st.subheader(f"📈 {view_mode} 趋势追踪")
+
+    if view_mode == "总收益":
+        plot_df = df.groupby(df["日期"].dt.normalize())["收入"].sum().reset_index()
+        plot_df.columns = ["日期", "收入"]
+        fig = px.line(plot_df, x="日期", y="收入", title="总收益日趋势", markers=True, height=500)
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    elif view_mode == "预算维度":
+        if not selected_budgets:
+            st.info("请先在左侧选择预算。")
+            st.stop()
+
+        plot_df = (
+            df[df["预算"].isin(selected_budgets)]
+            .assign(日期=df["日期"].dt.normalize())
+            .groupby(["日期", "预算"])["收入"]
+            .sum()
+            .reset_index()
+        )
+        fig = px.line(
+            plot_df,
+            x="日期",
+            y="收入",
+            color="预算",
+            title="选定预算趋势对比",
+            markers=True,
+            height=600
+        )
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    else:
+        if not selected_channels:
+            st.info("请先在左侧选择渠道。")
+            st.stop()
+
+        plot_df = (
+            df[df["渠道"].isin(selected_channels)]
+            .assign(日期=df["日期"].dt.normalize())
+            .groupby(["日期", "渠道"])["收入"]
+            .sum()
+            .reset_index()
+        )
+        fig = px.line(
+            plot_df,
+            x="日期",
+            y="收入",
+            color="渠道",
+            title="选定渠道趋势对比",
+            markers=True,
+            height=600
+        )
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    fig.update_layout(hovermode="x unified")
+    st.plotly_chart(fig, width="stretch")
+
+    st.markdown("---")
+    t1, t2 = st.tabs(["🍱 预算明细对比", "🚀 渠道明细对比"])
+
+    with t1:
+        st.dataframe(get_comp("预算"), width="stretch")
+
+    with t2:
+        st.dataframe(get_comp("渠道"), width="stretch")
+
+    # 👉 新增：按周收入对比
+    st.subheader("📅 实时周收入对比")
     def get_sum_by_week(target_date, dim=None):
         """
         获取指定周的收益总和，按维度（预算/渠道）进行分组
@@ -131,9 +251,7 @@ if password == "123456":
 
         return res
 
-    # Display real-time weekly comparison
     weekly_total_row = get_weekly_comp()
-    st.subheader("📅 实时周收入对比")
     st.dataframe(weekly_total_row, width="stretch")
 
     t1, t2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
