@@ -242,8 +242,14 @@ if password == "123456":
     weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
     weekly_data['涨跌百分比'] = ((weekly_data['涨跌'] / weekly_data['上周收入']) * 100).round(2)
 
-    # 确保没有空值
+    # 确保没有空值或NaN
     weekly_data = weekly_data.dropna(subset=['涨跌百分比'])
+
+    # 确保 '涨跌百分比' 列是数值类型
+    weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
+
+    # Debug output: Print out weekly_data to debug
+    st.write(weekly_data)  # Print the data to check
 
     # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
