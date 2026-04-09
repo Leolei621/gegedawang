@@ -232,5 +232,20 @@ if password == "123456":
     with t2:
         st.dataframe(get_comp("渠道"), width="stretch")
 
+    # 👉 新增：按周收入对比
+    st.subheader("📅 按周收入对比")
+    weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
+    st.dataframe(weekly_data, width="stretch")
+
+    fig_weekly = px.line(
+        weekly_data,
+        x='日期',
+        y='收入',
+        title="每周收入对比",
+        markers=True,
+        height=500
+    )
+    st.plotly_chart(fig_weekly, width="stretch")
+
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
