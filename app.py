@@ -235,7 +235,11 @@ if password == "123456":
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
 
-    # 预算按周收入对比
+    # 周收入对比筛选
+    week_start_date_input = st.sidebar.date_input("选择要查看的周的开始日期：", value=selected_date)
+    week_start_date = pd.to_datetime(week_start_date_input)
+
+    # 计算目标周和上周的收入对比
     def get_weekly_sum_by_date(target_date, dim=None):
         if target_date is None:
             if dim:
@@ -252,8 +256,8 @@ if password == "123456":
 
     def get_weekly_comp(dim=None):
         if dim:
-            t = get_weekly_sum_by_date(selected_date, dim)
-            l = get_weekly_sum_by_date(lw_date, dim)
+            t = get_weekly_sum_by_date(week_start_date, dim)
+            l = get_weekly_sum_by_date(week_start_date - timedelta(weeks=1), dim)
 
             res = (
                 t.merge(l, on=dim, how="left", suffixes=("", "_上周"))
@@ -261,8 +265,8 @@ if password == "123456":
             res.columns = [dim, "本周", "上周"]
             res = res.fillna(0)
         else:
-            t_val = get_weekly_sum_by_date(selected_date)
-            l_val = get_weekly_sum_by_date(lw_date)
+            t_val = get_weekly_sum_by_date(week_start_date)
+            l_val = get_weekly_sum_by_date(week_start_date - timedelta(weeks=1))
 
             res = pd.DataFrame(
                 [["总计", t_val, l_val]],
