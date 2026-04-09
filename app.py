@@ -235,6 +235,7 @@ if password == "123456":
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
 
+    # 按周分组，计算每周的收入
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
 
     # 计算周收入的涨跌（与上周对比）
@@ -247,9 +248,6 @@ if password == "123456":
 
     # 确保 '涨跌百分比' 列是数值类型
     weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
-
-    # Debug output: Print out weekly_data to debug
-    st.write(weekly_data)  # Print the data to check
 
     # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
