@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import timedelta
 
 st.set_page_config(page_title="收益对比深度看板", layout="wide")
@@ -233,26 +234,18 @@ if password == "123456":
 
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
-
-    # 按周分组，计算每周的收入
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
-
-    # 计算周收入的涨跌（与上周对比）
-    weekly_data['上周收入'] = weekly_data['收入'].shift(1)
-    weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
-    weekly_data['涨跌百分比'] = ((weekly_data['涨跌'] / weekly_data['上周收入']) * 100).round(2)
-
-    # 确保没有空值或NaN
-    weekly_data = weekly_data.dropna(subset=['涨跌百分比'])
-
-    # 确保 '涨跌百分比' 列是数值类型
-    weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
-
-    # 格式化日期，只显示年月日
-    weekly_data['日期'] = weekly_data['日期'].dt.strftime('%Y-%m-%d')
-
-    # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
+
+    fig_weekly = px.line(
+        weekly_data,
+        x='日期',
+        y='收入',
+        title="每周收入对比",
+        markers=True,
+        height=500
+    )
+    st.plotly_chart(fig_weekly, width="stretch")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
