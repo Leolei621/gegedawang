@@ -234,6 +234,68 @@ if password == "123456":
 
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
+    def get_weekly_sum_by_date(target_date, dim=None):
+        """
+        Get the sum of revenue for the given week, optionally grouped by a specific dimension (budget/channel).
+        """
+        if target_date is None:
+            if dim:
+                return pd.DataFrame(columns=[dim, "收入"])
+            return 0
+
+        # Calculate the start of the week for the target date
+        start_of_week = target_date - timedelta(days=target_date.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+
+        # Filter data for the given week
+        week_df = df[(df["日期"] >= start_of_week) & (df["日期"] <= end_of_week)]
+
+        if dim:
+            return week_df.groupby(dim)["收入"].sum().reset_index()
+        return week_df["收入"].sum()
+
+    def get_weekly_comp(dim=None):
+        """
+        Compare weekly revenue for the selected date, previous week, and the week before that.
+        """
+        if dim:
+            t = get_weekly_sum_by_date(selected_date, dim)
+            p = get_weekly_sum_by_date(prev_date, dim)
+            l = get_weekly_sum_by_date(lw_date, dim)
+
+            res = (
+                t.merge(p, on=dim, how="left", suffixes=("", "_前一周"))
+                 .merge(l, on=dim, how="left", suffixes=("", "_上上周"))
+            )
+            res.columns = [dim, "本周", "前一周", "上上周"]
+            res = res.fillna(0)
+        else:
+            t_val = get_weekly_sum_by_date(selected_date)
+            p_val = get_weekly_sum_by_date(prev_date)
+            l_val = get_weekly_sum_by_date(lw_date)
+
+            res = pd.DataFrame(
+                [["总计", t_val, p_val, l_val]],
+                columns=["维度", "本周", "前一周", "上上周"]
+            )
+
+        res["WoW涨跌"] = res["本周"] - res["前一周"]
+        res["YoY涨跌"] = res["本周"] - res["上上周"]
+        return res
+
+    weekly_total_row = get_weekly_comp()
+    st.dataframe(weekly_total_row, width="stretch")
+
+    # Display weekly comparison by budget and channel
+    t1, t2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
+
+    with t1:
+        st.dataframe(get_weekly_comp("预算"), width="stretch")
+
+    with t2:
+        st.dataframe(get_weekly_comp("渠道"), width="stretch")
+
+    # Weekly data plot
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
     st.dataframe(weekly_data, width="stretch")
 
