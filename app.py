@@ -57,6 +57,12 @@ if password == "123456":
     )
     selected_date = pd.Timestamp(selected_date_input).normalize()
 
+    def get_latest_available_before(target_date):
+        available = [d for d in all_dates if pd.Timestamp(d).normalize() < target_date]
+        if not available:
+            return None
+        return pd.Timestamp(available[-1]).normalize()
+
     def get_week_compare_date(target_date):
         exact_week_date = target_date - timedelta(days=7)
         normalized_dates = [pd.Timestamp(d).normalize() for d in all_dates]
@@ -69,6 +75,7 @@ if password == "123456":
             return None
         return available[-1]
 
+    prev_date = get_latest_available_before(selected_date)
     lw_date = get_week_compare_date(selected_date)
 
     st.sidebar.header("图表筛选设置")
@@ -105,67 +112,149 @@ if password == "123456":
             return day_df.groupby(dim)["收入"].sum().reset_index()
         return day_df["收入"].sum()
 
-    def get_weekly_sum_by_date(target_date, dim=None):
-        """
-        Get the sum of revenue for the given week, optionally grouped by a specific dimension (budget/channel).
-        """
-        if target_date is None:
-            if dim:
-                return pd.DataFrame(columns=[dim, "收入"])
-            return 0
-
-        # Calculate the start of the week for the target date
-        start_of_week = target_date - timedelta(days=target_date.weekday())
-        end_of_week = start_of_week + timedelta(days=6)
-
-        # Filter data for the given week
-        week_df = df[(df["日期"] >= start_of_week) & (df["日期"] <= end_of_week)]
-
+    def get_comp(dim=None):
         if dim:
-            return week_df.groupby(dim)["收入"].sum().reset_index()
-        return week_df["收入"].sum()
-
-    def get_weekly_comp(dim=None):
-        """
-        Compare weekly revenue for the selected date and the previous week.
-        """
-        if dim:
-            t = get_weekly_sum_by_date(selected_date, dim)
-            l = get_weekly_sum_by_date(lw_date, dim)
+            t = get_sum_by_date(selected_date, dim)
+            p = get_sum_by_date(prev_date, dim)
+            l = get_sum_by_date(lw_date, dim)
 
             res = (
-                t.merge(l, on=dim, how="left", suffixes=("", "_上周"))
+                t.merge(p, on=dim, how="left", suffixes=("", "_前一日"))
+                 .merge(l, on=dim, how="left", suffixes=("", "_上周"))
             )
-            res.columns = [dim, "本周", "上周"]
+            res.columns = [dim, "今日", "前一日", "上周同日"]
             res = res.fillna(0)
         else:
-            t_val = get_weekly_sum_by_date(selected_date)
-            l_val = get_weekly_sum_by_date(lw_date)
+            t_val = get_sum_by_date(selected_date)
+            p_val = get_sum_by_date(prev_date)
+            l_val = get_sum_by_date(lw_date)
 
             res = pd.DataFrame(
-                [["总计", t_val, l_val]],
-                columns=["维度", "本周", "上周"]
+                [["总计", t_val, p_val, l_val]],
+                columns=["维度", "今日", "前一日", "上周同日"]
             )
 
-        res["WoW涨跌"] = res["本周"] - res["上周"]
+        res["DoD涨跌"] = res["今日"] - res["前一日"]
+        res["WoW涨跌"] = res["今日"] - res["上周同日"]
         return res
 
-    weekly_total_row = get_weekly_comp()
-    st.dataframe(weekly_total_row, width="stretch")
+    total_row = get_comp()
 
-    # Display weekly comparison by budget and channel
-    t1, t2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
+    st.subheader(f"📍 实时概览 ({selected_date.date()})")
+
+    if prev_date is not None:
+        prev_label = prev_date.strftime("%Y-%m-%d")
+    else:
+        prev_label = "无可用前一日"
+
+    if lw_date is not None:
+        lw_label = lw_date.strftime("%Y-%m-%d")
+    else:
+        lw_label = "无可用上周同日"
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("当日收益", f"¥{total_row['今日'][0]:,.2f}")
+    m2.metric(
+        f"前一日收益（{prev_label}）",
+        f"¥{total_row['前一日'][0]:,.2f}",
+        delta=f"{total_row['DoD涨跌'][0]:,.2f}"
+    )
+    m3.metric(
+        f"上周同日收益（{lw_label}）",
+        f"¥{total_row['上周同日'][0]:,.2f}",
+        delta=f"{total_row['WoW涨跌'][0]:,.2f}"
+    )
+
+    st.markdown("---")
+    st.subheader(f"📈 {view_mode} 趋势追踪")
+
+    if view_mode == "总收益":
+        plot_df = df.groupby(df["日期"].dt.normalize())["收入"].sum().reset_index()
+        plot_df.columns = ["日期", "收入"]
+        fig = px.line(plot_df, x="日期", y="收入", title="总收益日趋势", markers=True, height=500)
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    elif view_mode == "预算维度":
+        if not selected_budgets:
+            st.info("请先在左侧选择预算。")
+            st.stop()
+
+        plot_df = (
+            df[df["预算"].isin(selected_budgets)]
+            .assign(日期=df["日期"].dt.normalize())
+            .groupby(["日期", "预算"])["收入"]
+            .sum()
+            .reset_index()
+        )
+        fig = px.line(
+            plot_df,
+            x="日期",
+            y="收入",
+            color="预算",
+            title="选定预算趋势对比",
+            markers=True,
+            height=600
+        )
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    else:
+        if not selected_channels:
+            st.info("请先在左侧选择渠道。")
+            st.stop()
+
+        plot_df = (
+            df[df["渠道"].isin(selected_channels)]
+            .assign(日期=df["日期"].dt.normalize())
+            .groupby(["日期", "渠道"])["收入"]
+            .sum()
+            .reset_index()
+        )
+        fig = px.line(
+            plot_df,
+            x="日期",
+            y="收入",
+            color="渠道",
+            title="选定渠道趋势对比",
+            markers=True,
+            height=600
+        )
+        fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
+
+    fig.update_layout(hovermode="x unified")
+    st.plotly_chart(fig, width="stretch")
+
+    st.markdown("---")
+    t1, t2 = st.tabs(["🍱 预算明细对比", "🚀 渠道明细对比"])
 
     with t1:
-        st.dataframe(get_weekly_comp("预算"), width="stretch")
+        st.dataframe(get_comp("预算"), width="stretch")
 
     with t2:
-        st.dataframe(get_weekly_comp("渠道"), width="stretch")
+        st.dataframe(get_comp("渠道"), width="stretch")
 
-    # Weekly data plot
+    # 👉 新增：按周收入对比
+    st.subheader("📅 按周收入对比")
+
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
+
+    # 计算周收入的涨跌（与上周对比）
+    weekly_data['上周收入'] = weekly_data['收入'].shift(1)
+    weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
+    weekly_data['涨跌百分比'] = ((weekly_data['涨跌'] / weekly_data['上周收入']) * 100).round(2)
+
+    # 确保没有空值或NaN
+    weekly_data = weekly_data.dropna(subset=['涨跌百分比'])
+
+    # 确保 '涨跌百分比' 列是数值类型
+    weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
+
+    # Debug output: Print out weekly_data to debug
+    st.write(weekly_data)  # Print the data to check
+
+    # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
 
+    # 绘制每周收入的趋势图
     fig_weekly = px.line(
         weekly_data,
         x='日期',
@@ -174,7 +263,20 @@ if password == "123456":
         markers=True,
         height=500
     )
+
+    # 绘制涨跌百分比的图
+    fig_change = px.bar(
+        weekly_data,
+        x='日期',
+        y='涨跌百分比',
+        title="每周收入涨跌百分比",
+        markers=True,
+        height=500
+    )
+
+    # 显示图表
     st.plotly_chart(fig_weekly, width="stretch")
+    st.plotly_chart(fig_change, width="stretch")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
