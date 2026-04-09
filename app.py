@@ -256,17 +256,18 @@ if password == "123456":
     st.dataframe(weekly_data, width="stretch")
 
     # 绘制涨跌百分比的图
-    fig_change = px.bar(
-        weekly_data,
-        x='日期',
-        y='涨跌百分比',
-        title="每周收入涨跌百分比",
-        markers=True,
-        height=500
-    )
-
-    # 显示图表
-    st.plotly_chart(fig_change, width="stretch")
+    try:
+        fig_change = px.bar(
+            weekly_data,
+            x='日期',
+            y='涨跌百分比',
+            title="每周收入涨跌百分比",
+            markers=True,
+            height=500
+        )
+        st.plotly_chart(fig_change, width="stretch")
+    except Exception as e:
+        st.error(f"绘制图表时发生错误: {e}")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
