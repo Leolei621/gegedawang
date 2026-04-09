@@ -235,26 +235,58 @@ if password == "123456":
     # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
 
+    # 预算按周收入对比
+    def get_weekly_sum_by_date(target_date, dim=None):
+        if target_date is None:
+            if dim:
+                return pd.DataFrame(columns=[dim, "收入"])
+            return 0
+
+        start_of_week = target_date - timedelta(days=target_date.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
+        week_df = df[(df["日期"] >= start_of_week) & (df["日期"] <= end_of_week)]
+
+        if dim:
+            return week_df.groupby(dim)["收入"].sum().reset_index()
+        return week_df["收入"].sum()
+
+    def get_weekly_comp(dim=None):
+        if dim:
+            t = get_weekly_sum_by_date(selected_date, dim)
+            l = get_weekly_sum_by_date(lw_date, dim)
+
+            res = (
+                t.merge(l, on=dim, how="left", suffixes=("", "_上周"))
+            )
+            res.columns = [dim, "本周", "上周"]
+            res = res.fillna(0)
+        else:
+            t_val = get_weekly_sum_by_date(selected_date)
+            l_val = get_weekly_sum_by_date(lw_date)
+
+            res = pd.DataFrame(
+                [["总计", t_val, l_val]],
+                columns=["维度", "本周", "上周"]
+            )
+
+        res["WoW涨跌"] = res["本周"] - res["上周"]
+        return res
+
+    weekly_total_row = get_weekly_comp()
+    st.dataframe(weekly_total_row, width="stretch")
+
+    # 显示按周分组的预算和渠道
+    t1, t2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
+
+    with t1:
+        st.dataframe(get_weekly_comp("预算"), width="stretch")
+
+    with t2:
+        st.dataframe(get_weekly_comp("渠道"), width="stretch")
+
+    # 按周绘制趋势图
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
 
-    # 计算周收入的涨跌（与上周对比）
-    weekly_data['上周收入'] = weekly_data['收入'].shift(1)
-    weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
-    weekly_data['涨跌百分比'] = ((weekly_data['涨跌'] / weekly_data['上周收入']) * 100).round(2)
-
-    # 确保没有空值或NaN
-    weekly_data = weekly_data.dropna(subset=['涨跌百分比'])
-
-    # 确保 '涨跌百分比' 列是数值类型
-    weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
-
-    # Debug output: Print out weekly_data to debug
-    st.write(weekly_data)  # Print the data to check
-
-    # 显示按周分组的数据
-    st.dataframe(weekly_data, width="stretch")
-
-    # 绘制每周收入的趋势图
     fig_weekly = px.line(
         weekly_data,
         x='日期',
@@ -264,19 +296,7 @@ if password == "123456":
         height=500
     )
 
-    # 绘制涨跌百分比的图
-    fig_change = px.bar(
-        weekly_data,
-        x='日期',
-        y='涨跌百分比',
-        title="每周收入涨跌百分比",
-        markers=True,
-        height=500
-    )
-
-    # 显示图表
     st.plotly_chart(fig_weekly, width="stretch")
-    st.plotly_chart(fig_change, width="stretch")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
