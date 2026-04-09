@@ -249,18 +249,11 @@ if password == "123456":
     # 确保 '涨跌百分比' 列是数值类型
     weekly_data['涨跌百分比'] = pd.to_numeric(weekly_data['涨跌百分比'], errors='coerce')
 
+    # 格式化日期，只显示年月日
+    weekly_data['日期'] = weekly_data['日期'].dt.strftime('%Y-%m-%d')
+
     # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
-
-    # 绘制每周收入的趋势图
-    fig_weekly = px.line(
-        weekly_data,
-        x='日期',
-        y='收入',
-        title="每周收入对比",
-        markers=True,
-        height=500
-    )
 
     # 绘制涨跌百分比的图
     fig_change = px.bar(
@@ -273,7 +266,6 @@ if password == "123456":
     )
 
     # 显示图表
-    st.plotly_chart(fig_weekly, width="stretch")
     st.plotly_chart(fig_change, width="stretch")
 
 else:
