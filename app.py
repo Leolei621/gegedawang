@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from datetime import timedelta
 
 st.set_page_config(page_title="收益对比深度看板", layout="wide")
@@ -254,20 +253,6 @@ if password == "123456":
 
     # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
-
-    # 绘制涨跌百分比的图
-    try:
-        fig_change = px.bar(
-            weekly_data,
-            x='日期',
-            y='涨跌百分比',
-            title="每周收入涨跌百分比",
-            markers=True,
-            height=500
-        )
-        st.plotly_chart(fig_change, width="stretch")
-    except Exception as e:
-        st.error(f"绘制图表时发生错误: {e}")
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
