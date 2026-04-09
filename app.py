@@ -240,7 +240,7 @@ if password == "123456":
     # 计算周收入的涨跌（与上周对比）
     weekly_data['上周收入'] = weekly_data['收入'].shift(1)
     weekly_data['涨跌'] = weekly_data['收入'] - weekly_data['上周收入']
-    weekly_data['涨跌百分比'] = (weekly_data['涨跌'] / weekly_data['上周收入']) * 100
+    weekly_data['涨跌百分比'] = ((weekly_data['涨跌'] / weekly_data['上周收入']) * 100).round(2)
 
     # 显示按周分组的数据
     st.dataframe(weekly_data, width="stretch")
