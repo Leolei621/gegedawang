@@ -138,6 +138,83 @@ if password == "123456":
         res["WoW涨跌"] = res["今日"] - res["上周同日"]
         return res
 
+    def build_share_compare(dim_name):
+        current_df = get_sum_by_date(selected_date, dim_name)
+        lastweek_df = get_sum_by_date(lw_date, dim_name)
+
+        if current_df.empty:
+            return pd.DataFrame(), pd.DataFrame()
+
+        current_df = current_df.rename(columns={"收入": "今日收入"})
+        lastweek_df = lastweek_df.rename(columns={"收入": "上周收入"})
+
+        merged = current_df.merge(lastweek_df, on=dim_name, how="outer").fillna(0)
+
+        current_total = merged["今日收入"].sum()
+        lastweek_total = merged["上周收入"].sum()
+
+        if current_total > 0:
+            merged["今日占比"] = merged["今日收入"] / current_total
+        else:
+            merged["今日占比"] = 0
+
+        if lastweek_total > 0:
+            merged["上周占比"] = merged["上周收入"] / lastweek_total
+        else:
+            merged["上周占比"] = 0
+
+        merged["占比变化"] = merged["今日占比"] - merged["上周占比"]
+
+        def get_change_label(x):
+            if x > 0:
+                return f"增加 {x:.2%}"
+            elif x < 0:
+                return f"降低 {abs(x):.2%}"
+            else:
+                return "持平"
+
+        merged["变化说明"] = merged["占比变化"].apply(get_change_label)
+
+        display_df = merged.copy()
+        display_df["今日占比"] = display_df["今日占比"].map(lambda x: f"{x:.2%}")
+        display_df["上周占比"] = display_df["上周占比"].map(lambda x: f"{x:.2%}")
+        display_df["占比变化"] = display_df["占比变化"].map(
+            lambda x: f"+{x:.2%}" if x > 0 else (f"-{abs(x):.2%}" if x < 0 else "0.00%")
+        )
+
+        display_df = display_df.sort_values("今日收入", ascending=False)
+
+        return merged, display_df[[dim_name, "今日收入", "今日占比", "上周占比", "占比变化", "变化说明"]]
+
+    def render_share_pie(dim_name, title):
+        raw_df, show_df = build_share_compare(dim_name)
+
+        if raw_df.empty:
+            st.info(f"{title} 暂无数据")
+            return
+
+        c1, c2 = st.columns([1.2, 1])
+
+        with c1:
+            pie_df = raw_df[raw_df["今日收入"] > 0].copy()
+
+            if pie_df.empty:
+                st.info(f"{title} 今日无有效收入数据")
+            else:
+                fig_pie = px.pie(
+                    pie_df,
+                    names=dim_name,
+                    values="今日收入",
+                    hole=0.45,
+                    title=title
+                )
+                fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+                st.plotly_chart(fig_pie, width="stretch")
+
+        with c2:
+            st.markdown(f"#### {dim_name}占比 vs 上周同日")
+            st.dataframe(show_df, width="stretch")
+
     total_row = get_comp()
 
     st.subheader(f"📍 实时概览 ({selected_date.date()})")
@@ -224,6 +301,17 @@ if password == "123456":
     st.plotly_chart(fig, width="stretch")
 
     st.markdown("---")
+    st.subheader("🥧 预算 / 渠道占比对比")
+
+    pie_tab1, pie_tab2 = st.tabs(["🍱 预算占比图", "🚀 渠道占比图"])
+
+    with pie_tab1:
+        render_share_pie("预算", "当日预算占比图")
+
+    with pie_tab2:
+        render_share_pie("渠道", "当日渠道占比图")
+
+    st.markdown("---")
     t1, t2 = st.tabs(["🍱 预算明细对比", "🚀 渠道明细对比"])
 
     with t1:
@@ -232,14 +320,11 @@ if password == "123456":
     with t2:
         st.dataframe(get_comp("渠道"), width="stretch")
 
-    # 👉 新增：按周收入对比
     st.subheader("📅 按周收入对比")
 
-    # 周收入对比筛选
     week_start_date_input = st.sidebar.date_input("选择要查看的周的开始日期：", value=selected_date)
     week_start_date = pd.to_datetime(week_start_date_input)
 
-    # 计算目标周和上周的收入对比
     def get_weekly_sum_by_date(target_date, dim=None):
         if target_date is None:
             if dim:
@@ -279,7 +364,6 @@ if password == "123456":
     weekly_total_row = get_weekly_comp()
     st.dataframe(weekly_total_row, width="stretch")
 
-    # 显示按周分组的预算和渠道
     t1, t2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
 
     with t1:
@@ -288,7 +372,6 @@ if password == "123456":
     with t2:
         st.dataframe(get_weekly_comp("渠道"), width="stretch")
 
-    # 按周绘制趋势图
     weekly_data = df.groupby(df['日期'].dt.to_period('W').dt.start_time)['收入'].sum().reset_index()
 
     fig_weekly = px.line(
