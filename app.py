@@ -22,7 +22,7 @@ if password == "123456":
         st.success("已刷新数据")
 
     # =========================
-    # 数据加载
+    # 数据加载与格式排查
     # =========================
     @st.cache_data(ttl=60)
     def load_data():
@@ -35,8 +35,28 @@ if password == "123456":
             st.error(f"Google 表格缺少必要列：{', '.join(missing_cols)}")
             st.stop()
 
+        # 备份原始输入数据用于报错展示
+        df["原始日期"] = df["日期"]
+        df["原始收入"] = df["收入"]
+
+        # 尝试转换格式
         df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-        df["收入"] = pd.to_numeric(df["收入"], errors="coerce").fillna(0)
+        df["收入"] = pd.to_numeric(df["收入"], errors="coerce")
+
+        # 排查并提示【日期】填写错误的行
+        invalid_dates = df[df["日期"].isna() & df["原始日期"].notna()]
+        if not invalid_dates.empty:
+            st.warning(f"⚠️ 警告：检测到 {len(invalid_dates)} 行数据的【日期】格式不正确。这些数据已被看板忽略，请在谷歌表格中修正为 YYYY-MM-DD（例如 2026-09-15）且不带空格！")
+            st.dataframe(invalid_dates[["原始日期", "原始收入", "预算", "渠道"]])
+
+        # 排查并提示【收入】填写错误的行
+        invalid_incomes = df[df["收入"].isna() & df["原始收入"].notna()]
+        if not invalid_incomes.empty:
+            st.warning(f"⚠️ 警告：检测到 {len(invalid_incomes)} 行数据的【收入】格式不正确（可能包含了空格、¥、$、千分号等符号）。这些收入目前被看板视为 0，请在谷歌表格中修正为纯数字！")
+            st.dataframe(invalid_incomes[["原始日期", "原始收入", "预算", "渠道"]])
+
+        # 补全后续处理逻辑
+        df["收入"] = df["收入"].fillna(0)
         df["预算"] = df["预算"].astype(str)
         df["渠道"] = df["渠道"].astype(str)
 
@@ -44,6 +64,9 @@ if password == "123456":
         df["日期"] = df["日期"].dt.normalize()
         df["周开始"] = df["日期"] - pd.to_timedelta(df["日期"].dt.weekday, unit="D")
         df["周结束"] = df["周开始"] + pd.Timedelta(days=6)
+
+        # 删除备份的临时列
+        df = df.drop(columns=["原始日期", "原始收入"])
 
         if df.empty:
             st.error("当前表格没有可用数据，请检查 Google 表格内容。")
@@ -65,7 +88,7 @@ if password == "123456":
     latest_week = pd.Timestamp(all_weeks[-1]).normalize()
 
     # =========================
-    # 顶层分析模式
+    # 顶层分析模式 & 预警设置
     # =========================
     st.sidebar.header("分析设置")
     analysis_granularity = st.sidebar.radio("选择时间维度：", ["按日分析", "按周分析"])
@@ -90,6 +113,12 @@ if password == "123456":
             all_channels,
             default=all_channels[:5] if len(all_channels) >= 5 else all_channels
         )
+
+    # --- 新增：下滑预警阈值设置 ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🚨 预警设置")
+    drop_threshold_pct = st.sidebar.slider("收益下滑预警阈值 (%)", min_value=5, max_value=80, value=20, step=5)
+    drop_threshold = drop_threshold_pct / 100.0
 
     # =========================
     # 通用函数 - 日维度
@@ -358,8 +387,9 @@ if password == "123456":
         prev_label = prev_date.strftime("%Y-%m-%d") if prev_date is not None else "无可用前一日"
         lw_label = lw_date.strftime("%Y-%m-%d") if lw_date is not None else "无可用上周同日"
 
+        # 展示顶层数据卡片
         m1, m2, m3 = st.columns(3)
-        m1.metric("当日收益", f"¥{total_row['今日'][0]:,.2f}")
+        m1.metric("当日总收益", f"¥{total_row['今日'][0]:,.2f}")
         m2.metric(
             f"前一日收益（{prev_label}）",
             f"¥{total_row['前一日'][0]:,.2f}",
@@ -370,6 +400,14 @@ if password == "123456":
             f"¥{total_row['上周同日'][0]:,.2f}",
             delta=f"{total_row['WoW涨跌'][0]:,.2f}"
         )
+
+        # --- 新增：按日收益下滑报警 ---
+        today_rev = total_row['今日'][0]
+        prev_rev = total_row['前一日'][0]
+        if prev_rev > 0:
+            dod_drop_pct = (prev_rev - today_rev) / prev_rev
+            if dod_drop_pct >= drop_threshold:
+                st.error(f"🚨 **收益暴跌预警：** 选定日期（{selected_date.strftime('%Y-%m-%d')}）的总收益相比前一日骤降 **{dod_drop_pct:.1%}** ！已超过设定的 {drop_threshold_pct}% 预警线，请及时排查追踪异常或渠道问题。")
 
         st.markdown("---")
         st.subheader(f"📈 {view_mode} 趋势追踪（按日）")
@@ -477,12 +515,20 @@ if password == "123456":
         )
 
         m1, m2 = st.columns(2)
-        m1.metric("本周收益", f"¥{weekly_total_row['本周'][0]:,.2f}")
+        m1.metric("本周总收益", f"¥{weekly_total_row['本周'][0]:,.2f}")
         m2.metric(
             f"上周收益（{prev_week_label}）",
             f"¥{weekly_total_row['上周'][0]:,.2f}",
             delta=f"{weekly_total_row['WoW涨跌'][0]:,.2f}"
         )
+
+        # --- 新增：按周收益下滑报警 ---
+        this_week_rev = weekly_total_row['本周'][0]
+        last_week_rev = weekly_total_row['上周'][0]
+        if last_week_rev > 0:
+            wow_drop_pct = (last_week_rev - this_week_rev) / last_week_rev
+            if wow_drop_pct >= drop_threshold:
+                st.error(f"🚨 **收益暴跌预警：** 选定周的总收益相比上周骤降 **{wow_drop_pct:.1%}** ！已超过设定的 {drop_threshold_pct}% 预警线，请及时排查异常。")
 
         st.markdown("---")
         st.subheader(f"📈 {view_mode} 趋势追踪（按周）")
