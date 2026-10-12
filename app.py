@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -11,92 +12,163 @@ st.set_page_config(page_title="收益对比深度看板", layout="wide")
 password = st.sidebar.text_input("请输入访问密码", type="password")
 
 if password == "123456":
+
     st.title("📊 高清收益分析看板")
 
     SHEET_ID = "1FvWeyj2stVsWdgWPQVMoUIMX-4cjT1Lk"
     GID = "444452246"
-    csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+
+    csv_url = (
+        f"https://docs.google.com/spreadsheets/d/"
+        f"{SHEET_ID}/export?format=csv&gid={GID}"
+    )
 
     if st.button("🔄 手动刷新数据"):
         st.cache_data.clear()
         st.success("已刷新数据")
 
     # =========================
-    # 数据加载与格式排查
+    # 数据加载
     # =========================
     @st.cache_data(ttl=60)
     def load_data():
-        df = pd.read_csv(csv_url)
-        df.columns = [c.strip() for c in df.columns]
+        data = pd.read_csv(csv_url)
+        data.columns = [str(c).strip() for c in data.columns]
 
         required_cols = ["日期", "收入", "预算", "渠道"]
-        missing_cols = [c for c in required_cols if c not in df.columns]
+        missing_cols = [
+            c for c in required_cols if c not in data.columns
+        ]
+
         if missing_cols:
-            st.error(f"Google 表格缺少必要列：{', '.join(missing_cols)}")
+            st.error(
+                "Google 表格缺少必要列："
+                + ", ".join(missing_cols)
+            )
             st.stop()
 
-        # 备份原始输入数据用于报错展示
-        df["原始日期"] = df["日期"]
-        df["原始收入"] = df["收入"]
+        data["原始日期"] = data["日期"]
+        data["原始收入"] = data["收入"]
 
-        # 尝试转换格式
-        df["日期"] = pd.to_datetime(df["日期"], errors="coerce")
-        df["收入"] = pd.to_numeric(df["收入"], errors="coerce")
+        data["日期"] = pd.to_datetime(
+            data["日期"], errors="coerce"
+        )
 
-        # 排查并提示【日期】填写错误的行
-        invalid_dates = df[df["日期"].isna() & df["原始日期"].notna()]
+        data["收入"] = pd.to_numeric(
+            data["收入"], errors="coerce"
+        )
+
+        invalid_dates = data[
+            data["日期"].isna()
+            & data["原始日期"].notna()
+        ]
+
         if not invalid_dates.empty:
-            st.warning(f"⚠️ 警告：检测到 {len(invalid_dates)} 行数据的【日期】格式不正确。这些数据已被看板忽略，请在谷歌表格中修正为 YYYY-MM-DD（例如 2026-09-15）且不带空格！")
-            st.dataframe(invalid_dates[["原始日期", "原始收入", "预算", "渠道"]])
+            st.warning(
+                f"⚠️ 检测到 {len(invalid_dates)} 行日期格式错误，"
+                "这些数据已被忽略。"
+            )
+            st.dataframe(
+                invalid_dates[
+                    ["原始日期", "原始收入", "预算", "渠道"]
+                ],
+                use_container_width=True
+            )
 
-        # 排查并提示【收入】填写错误的行
-        invalid_incomes = df[df["收入"].isna() & df["原始收入"].notna()]
+        invalid_incomes = data[
+            data["收入"].isna()
+            & data["原始收入"].notna()
+        ]
+
         if not invalid_incomes.empty:
-            st.warning(f"⚠️ 警告：检测到 {len(invalid_incomes)} 行数据的【收入】格式不正确（可能包含了空格、¥、$、千分号等符号）。这些收入目前被看板视为 0，请在谷歌表格中修正为纯数字！")
-            st.dataframe(invalid_incomes[["原始日期", "原始收入", "预算", "渠道"]])
+            st.warning(
+                f"⚠️ 检测到 {len(invalid_incomes)} 行收入格式错误，"
+                "这些收入暂按 0 处理。"
+            )
+            st.dataframe(
+                invalid_incomes[
+                    ["原始日期", "原始收入", "预算", "渠道"]
+                ],
+                use_container_width=True
+            )
 
-        # 补全后续处理逻辑
-        df["收入"] = df["收入"].fillna(0)
-        df["预算"] = df["预算"].astype(str)
-        df["渠道"] = df["渠道"].astype(str)
+        data["收入"] = data["收入"].fillna(0)
 
-        df = df.dropna(subset=["日期"]).copy()
-        df["日期"] = df["日期"].dt.normalize()
-        df["周开始"] = df["日期"] - pd.to_timedelta(df["日期"].dt.weekday, unit="D")
-        df["周结束"] = df["周开始"] + pd.Timedelta(days=6)
+        data["预算"] = (
+            data["预算"].fillna("未填写")
+            .astype(str).str.strip()
+        )
 
-        # 删除备份的临时列
-        df = df.drop(columns=["原始日期", "原始收入"])
+        data["渠道"] = (
+            data["渠道"].fillna("未填写")
+            .astype(str).str.strip()
+        )
 
-        if df.empty:
-            st.error("当前表格没有可用数据，请检查 Google 表格内容。")
+        data = data.dropna(subset=["日期"]).copy()
+
+        data["日期"] = data["日期"].dt.normalize()
+
+        data["周开始"] = (
+            data["日期"]
+            - pd.to_timedelta(
+                data["日期"].dt.weekday,
+                unit="D"
+            )
+        )
+
+        data["周结束"] = (
+            data["周开始"] + pd.Timedelta(days=6)
+        )
+
+        data = data.drop(
+            columns=["原始日期", "原始收入"]
+        )
+
+        if data.empty:
+            st.error("当前表格没有可用数据。")
             st.stop()
 
-        return df
+        return data
 
     df = load_data()
 
-    st.info("当前使用 Google 表格中的最新数据（自动刷新 + 可手动刷新）")
+    st.info(
+        "当前使用 Google 表格中的最新数据"
+        "（自动刷新 + 可手动刷新）"
+    )
 
     # =========================
-    # 基础日期/周列表
+    # 日期及维度
     # =========================
-    all_dates = sorted(df["日期"].dropna().unique().tolist())
-    latest_date = pd.Timestamp(all_dates[-1]).normalize()
+    all_dates = sorted(
+        pd.Timestamp(x).normalize()
+        for x in df["日期"].unique()
+    )
 
-    all_weeks = sorted(df["周开始"].dropna().unique().tolist())
-    latest_week = pd.Timestamp(all_weeks[-1]).normalize()
+    latest_date = all_dates[-1]
+
+    all_weeks = sorted(
+        pd.Timestamp(x).normalize()
+        for x in df["周开始"].unique()
+    )
+
+    all_budgets = sorted(df["预算"].unique().tolist())
+    all_channels = sorted(df["渠道"].unique().tolist())
 
     # =========================
-    # 顶层分析模式 & 预警设置
+    # 侧边栏
     # =========================
     st.sidebar.header("分析设置")
-    analysis_granularity = st.sidebar.radio("选择时间维度：", ["按日分析", "按周分析"])
 
-    view_mode = st.sidebar.radio("选择分析维度：", ["总收益", "预算维度", "渠道维度"])
+    analysis_granularity = st.sidebar.radio(
+        "选择时间维度：",
+        ["按日分析", "按周分析"]
+    )
 
-    all_budgets = sorted(df["预算"].dropna().unique().tolist())
-    all_channels = sorted(df["渠道"].dropna().unique().tolist())
+    view_mode = st.sidebar.radio(
+        "选择分析维度：",
+        ["总收益", "预算维度", "渠道维度"]
+    )
 
     selected_budgets = []
     selected_channels = []
@@ -105,315 +177,766 @@ if password == "123456":
         selected_budgets = st.sidebar.multiselect(
             "选择要查看的预算：",
             all_budgets,
-            default=all_budgets[:3] if len(all_budgets) >= 3 else all_budgets
+            default=all_budgets[:3]
         )
+
     elif view_mode == "渠道维度":
         selected_channels = st.sidebar.multiselect(
             "选择要查看的渠道：",
             all_channels,
-            default=all_channels[:5] if len(all_channels) >= 5 else all_channels
+            default=all_channels[:5]
         )
 
-    # --- 新增：下滑预警阈值设置 ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("🚨 预警设置")
-    drop_threshold_pct = st.sidebar.slider("收益下滑预警阈值 (%)", min_value=5, max_value=80, value=20, step=5)
-    drop_threshold = drop_threshold_pct / 100.0
+
+    drop_threshold_pct = st.sidebar.slider(
+        "收益下滑预警阈值 (%)",
+        min_value=5,
+        max_value=80,
+        value=20,
+        step=5
+    )
+
+    drop_threshold = drop_threshold_pct / 100
 
     # =========================
-    # 通用函数 - 日维度
+    # 通用函数
     # =========================
     def get_latest_available_before(target_date):
-        available = [pd.Timestamp(d).normalize() for d in all_dates if pd.Timestamp(d).normalize() < target_date]
-        if not available:
-            return None
-        return available[-1]
+        dates = [
+            d for d in all_dates
+            if d < target_date
+        ]
+        return dates[-1] if dates else None
 
     def get_week_compare_date(target_date):
-        exact_week_date = target_date - timedelta(days=7)
-        normalized_dates = [pd.Timestamp(d).normalize() for d in all_dates]
+        exact_date = target_date - timedelta(days=7)
 
-        if exact_week_date in normalized_dates:
-            return exact_week_date
+        if exact_date in all_dates:
+            return exact_date
 
-        available = [d for d in normalized_dates if d < exact_week_date]
-        if not available:
-            return None
-        return available[-1]
+        dates = [
+            d for d in all_dates
+            if d < exact_date
+        ]
+
+        return dates[-1] if dates else None
+
+    def get_previous_week(week_start):
+        previous = week_start - pd.Timedelta(days=7)
+
+        if previous in all_weeks:
+            return previous
+
+        dates = [
+            w for w in all_weeks
+            if w < week_start
+        ]
+
+        return dates[-1] if dates else None
 
     def get_sum_by_date(target_date, dim=None):
         if target_date is None:
             if dim:
-                return pd.DataFrame(columns=[dim, "收入"])
-            return 0
+                return pd.DataFrame(
+                    columns=[dim, "收入"]
+                )
+            return 0.0
 
-        day_df = df[df["日期"] == pd.Timestamp(target_date).normalize()]
+        day_df = df[df["日期"] == target_date]
 
         if dim:
-            return day_df.groupby(dim, as_index=False)["收入"].sum()
+            return (
+                day_df.groupby(dim, as_index=False)["收入"]
+                .sum()
+            )
+
         return day_df["收入"].sum()
-
-    def get_daily_comp(selected_date, prev_date, lw_date, dim=None):
-        if dim:
-            t = get_sum_by_date(selected_date, dim)
-            p = get_sum_by_date(prev_date, dim)
-            l = get_sum_by_date(lw_date, dim)
-
-            res = (
-                t.merge(p, on=dim, how="left", suffixes=("", "_前一日"))
-                 .merge(l, on=dim, how="left", suffixes=("", "_上周"))
-            )
-            res.columns = [dim, "今日", "前一日", "上周同日"]
-            res = res.fillna(0)
-        else:
-            t_val = get_sum_by_date(selected_date)
-            p_val = get_sum_by_date(prev_date)
-            l_val = get_sum_by_date(lw_date)
-
-            res = pd.DataFrame(
-                [["总计", t_val, p_val, l_val]],
-                columns=["维度", "今日", "前一日", "上周同日"]
-            )
-
-        res["DoD涨跌"] = res["今日"] - res["前一日"]
-        res["WoW涨跌"] = res["今日"] - res["上周同日"]
-        return res
-
-    def build_daily_share_compare(selected_date, lw_date, dim_name):
-        current_df = get_sum_by_date(selected_date, dim_name)
-        lastweek_df = get_sum_by_date(lw_date, dim_name)
-
-        if current_df.empty:
-            return pd.DataFrame(), pd.DataFrame()
-
-        current_df = current_df.rename(columns={"收入": "今日收入"})
-        lastweek_df = lastweek_df.rename(columns={"收入": "上周收入"})
-
-        merged = current_df.merge(lastweek_df, on=dim_name, how="outer").fillna(0)
-
-        current_total = merged["今日收入"].sum()
-        lastweek_total = merged["上周收入"].sum()
-
-        merged["今日占比"] = merged["今日收入"] / current_total if current_total > 0 else 0
-        merged["上周占比"] = merged["上周收入"] / lastweek_total if lastweek_total > 0 else 0
-        merged["占比变化"] = merged["今日占比"] - merged["上周占比"]
-
-        def get_change_label(x):
-            if x > 0:
-                return f"增加 {x:.2%}"
-            elif x < 0:
-                return f"降低 {abs(x):.2%}"
-            else:
-                return "持平"
-
-        merged["变化说明"] = merged["占比变化"].apply(get_change_label)
-
-        display_df = merged.copy()
-        display_df["今日占比"] = display_df["今日占比"].map(lambda x: f"{x:.2%}")
-        display_df["上周占比"] = display_df["上周占比"].map(lambda x: f"{x:.2%}")
-        display_df["占比变化"] = display_df["占比变化"].map(
-            lambda x: f"+{x:.2%}" if x > 0 else (f"-{abs(x):.2%}" if x < 0 else "0.00%")
-        )
-
-        display_df = display_df.sort_values("今日收入", ascending=False)
-
-        return merged, display_df[[dim_name, "今日收入", "今日占比", "上周占比", "占比变化", "变化说明"]]
-
-    # =========================
-    # 通用函数 - 周维度
-    # =========================
-    def get_previous_week(week_start):
-        previous_week = pd.Timestamp(week_start).normalize() - pd.Timedelta(days=7)
-        available = [pd.Timestamp(w).normalize() for w in all_weeks]
-        if previous_week in available:
-            return previous_week
-
-        fallback = [w for w in available if w < pd.Timestamp(week_start).normalize()]
-        return fallback[-1] if fallback else None
 
     def get_sum_by_week(week_start, dim=None):
         if week_start is None:
             if dim:
-                return pd.DataFrame(columns=[dim, "收入"])
-            return 0
+                return pd.DataFrame(
+                    columns=[dim, "收入"]
+                )
+            return 0.0
 
-        week_start = pd.Timestamp(week_start).normalize()
         week_df = df[df["周开始"] == week_start]
 
         if dim:
-            return week_df.groupby(dim, as_index=False)["收入"].sum()
-        return week_df["收入"].sum()
-
-    def get_weekly_comp(selected_week, prev_week, dim=None):
-        if dim:
-            t = get_sum_by_week(selected_week, dim)
-            p = get_sum_by_week(prev_week, dim)
-
-            res = t.merge(p, on=dim, how="left", suffixes=("", "_上周"))
-            res.columns = [dim, "本周", "上周"]
-            res = res.fillna(0)
-        else:
-            t_val = get_sum_by_week(selected_week)
-            p_val = get_sum_by_week(prev_week)
-
-            res = pd.DataFrame(
-                [["总计", t_val, p_val]],
-                columns=["维度", "本周", "上周"]
+            return (
+                week_df.groupby(dim, as_index=False)["收入"]
+                .sum()
             )
 
-        res["WoW涨跌"] = res["本周"] - res["上周"]
-        return res
+        return week_df["收入"].sum()
 
-    def build_weekly_share_compare(selected_week, prev_week, dim_name):
-        current_df = get_sum_by_week(selected_week, dim_name)
-        lastweek_df = get_sum_by_week(prev_week, dim_name)
+    def get_daily_comp(
+        selected_date, prev_date, lw_date, dim=None
+    ):
+        if dim:
+            current = get_sum_by_date(
+                selected_date, dim
+            ).rename(columns={"收入": "今日"})
 
-        if current_df.empty:
-            return pd.DataFrame(), pd.DataFrame()
+            previous = get_sum_by_date(
+                prev_date, dim
+            ).rename(columns={"收入": "前一日"})
 
-        current_df = current_df.rename(columns={"收入": "本周收入"})
-        lastweek_df = lastweek_df.rename(columns={"收入": "上周收入"})
+            lastweek = get_sum_by_date(
+                lw_date, dim
+            ).rename(columns={"收入": "上周同日"})
 
-        merged = current_df.merge(lastweek_df, on=dim_name, how="outer").fillna(0)
+            result = (
+                current
+                .merge(previous, on=dim, how="outer")
+                .merge(lastweek, on=dim, how="outer")
+                .fillna(0)
+            )
 
-        current_total = merged["本周收入"].sum()
-        lastweek_total = merged["上周收入"].sum()
+        else:
+            result = pd.DataFrame([{
+                "维度": "总计",
+                "今日": get_sum_by_date(selected_date),
+                "前一日": get_sum_by_date(prev_date),
+                "上周同日": get_sum_by_date(lw_date)
+            }])
 
-        merged["本周占比"] = merged["本周收入"] / current_total if current_total > 0 else 0
-        merged["上周占比"] = merged["上周收入"] / lastweek_total if lastweek_total > 0 else 0
-        merged["占比变化"] = merged["本周占比"] - merged["上周占比"]
-
-        def get_change_label(x):
-            if x > 0:
-                return f"增加 {x:.2%}"
-            elif x < 0:
-                return f"降低 {abs(x):.2%}"
-            else:
-                return "持平"
-
-        merged["变化说明"] = merged["占比变化"].apply(get_change_label)
-
-        display_df = merged.copy()
-        display_df["本周占比"] = display_df["本周占比"].map(lambda x: f"{x:.2%}")
-        display_df["上周占比"] = display_df["上周占比"].map(lambda x: f"{x:.2%}")
-        display_df["占比变化"] = display_df["占比变化"].map(
-            lambda x: f"+{x:.2%}" if x > 0 else (f"-{abs(x):.2%}" if x < 0 else "0.00%")
+        result["DoD涨跌"] = (
+            result["今日"] - result["前一日"]
         )
 
-        display_df = display_df.sort_values("本周收入", ascending=False)
+        result["WoW涨跌"] = (
+            result["今日"] - result["上周同日"]
+        )
 
-        return merged, display_df[[dim_name, "本周收入", "本周占比", "上周占比", "占比变化", "变化说明"]]
+        return result
+
+    def get_weekly_comp(
+        selected_week, prev_week, dim=None
+    ):
+        if dim:
+            current = get_sum_by_week(
+                selected_week, dim
+            ).rename(columns={"收入": "本周"})
+
+            previous = get_sum_by_week(
+                prev_week, dim
+            ).rename(columns={"收入": "上周"})
+
+            result = current.merge(
+                previous,
+                on=dim,
+                how="outer"
+            ).fillna(0)
+
+        else:
+            result = pd.DataFrame([{
+                "维度": "总计",
+                "本周": get_sum_by_week(selected_week),
+                "上周": get_sum_by_week(prev_week)
+            }])
+
+        result["WoW涨跌"] = (
+            result["本周"] - result["上周"]
+        )
+
+        return result
 
     # =========================
-    # 图表渲染函数
+    # 占比分析
     # =========================
-    def render_daily_share_pie(dim_name, title, selected_date, lw_date):
-        raw_df, show_df = build_daily_share_compare(selected_date, lw_date, dim_name)
+    def build_share_compare(
+        current_data,
+        previous_data,
+        dim_name,
+        current_label,
+        previous_label
+    ):
+        current = (
+            current_data.groupby(
+                dim_name, as_index=False
+            )["收入"].sum()
+            .rename(columns={"收入": current_label})
+        )
 
-        if raw_df.empty:
-            st.info(f"{title} 暂无数据")
+        previous = (
+            previous_data.groupby(
+                dim_name, as_index=False
+            )["收入"].sum()
+            .rename(columns={"收入": previous_label})
+        )
+
+        merged = current.merge(
+            previous,
+            on=dim_name,
+            how="outer"
+        ).fillna(0)
+
+        current_total = merged[current_label].sum()
+        previous_total = merged[previous_label].sum()
+
+        merged["当前占比"] = (
+            merged[current_label] / current_total
+            if current_total > 0 else 0
+        )
+
+        merged["对比占比"] = (
+            merged[previous_label] / previous_total
+            if previous_total > 0 else 0
+        )
+
+        merged["占比变化"] = (
+            merged["当前占比"] - merged["对比占比"]
+        )
+
+        merged = merged.sort_values(
+            current_label, ascending=False
+        )
+
+        return merged
+
+    def render_share_pie(
+        current_data,
+        previous_data,
+        dim_name,
+        title,
+        current_label,
+        previous_label
+    ):
+        result = build_share_compare(
+            current_data,
+            previous_data,
+            dim_name,
+            current_label,
+            previous_label
+        )
+
+        if result.empty:
+            st.info("暂无占比数据")
             return
 
         c1, c2 = st.columns([1.2, 1])
 
         with c1:
-            pie_df = raw_df[raw_df["今日收入"] > 0].copy()
+            pie_data = result[
+                result[current_label] > 0
+            ]
 
-            if pie_df.empty:
-                st.info(f"{title} 今日无有效收入数据")
-            else:
-                fig_pie = px.pie(
-                    pie_df,
+            if not pie_data.empty:
+                fig = px.pie(
+                    pie_data,
                     names=dim_name,
-                    values="今日收入",
+                    values=current_label,
                     hole=0.45,
                     title=title
                 )
-                fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-                st.plotly_chart(fig_pie, use_container_width=True)
+
+                fig.update_traces(
+                    textposition="inside",
+                    textinfo="percent+label"
+                )
+
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True
+                )
 
         with c2:
-            st.markdown(f"#### {dim_name}占比 vs 上周同日")
-            st.dataframe(show_df, use_container_width=True)
+            show = result.copy()
 
-    def render_weekly_share_pie(dim_name, title, selected_week, prev_week):
-        raw_df, show_df = build_weekly_share_compare(selected_week, prev_week, dim_name)
+            show["当前占比"] = show[
+                "当前占比"
+            ].map(lambda x: f"{x:.2%}")
 
-        if raw_df.empty:
-            st.info(f"{title} 暂无数据")
+            show["对比占比"] = show[
+                "对比占比"
+            ].map(lambda x: f"{x:.2%}")
+
+            show["占比变化"] = show[
+                "占比变化"
+            ].map(lambda x: f"{x:+.2%}")
+
+            st.dataframe(
+                show,
+                use_container_width=True,
+                hide_index=True
+            )
+
+    # =================================================
+    # 新增模块：渠道收益下滑归因
+    # =================================================
+    def get_budget_attribution(
+        current_data,
+        comparison_data,
+        current_label,
+        comparison_label
+    ):
+        current = (
+            current_data.groupby(
+                "预算", as_index=False
+            )["收入"].sum()
+            .rename(columns={"收入": current_label})
+        )
+
+        comparison = (
+            comparison_data.groupby(
+                "预算", as_index=False
+            )["收入"].sum()
+            .rename(columns={"收入": comparison_label})
+        )
+
+        result = current.merge(
+            comparison,
+            on="预算",
+            how="outer"
+        ).fillna(0)
+
+        result["涨跌金额"] = (
+            result[current_label]
+            - result[comparison_label]
+        )
+
+        result["涨跌比例"] = result.apply(
+            lambda row: (
+                row["涨跌金额"]
+                / row[comparison_label]
+                if row[comparison_label] > 0
+                else None
+            ),
+            axis=1
+        )
+
+        result["变化状态"] = result[
+            "涨跌金额"
+        ].apply(
+            lambda x: (
+                "下降" if x < -0.000001
+                else "增长" if x > 0.000001
+                else "持平"
+            )
+        )
+
+        result = result.sort_values(
+            "涨跌金额",
+            ascending=True
+        ).reset_index(drop=True)
+
+        return result
+
+    def render_attribution_table(
+        result,
+        current_label,
+        comparison_label,
+        chart_title
+    ):
+        if result.empty:
+            st.info("当前渠道暂无预算明细。")
             return
 
-        c1, c2 = st.columns([1.2, 1])
+        current_total = result[current_label].sum()
+        previous_total = result[comparison_label].sum()
 
-        with c1:
-            pie_df = raw_df[raw_df["本周收入"] > 0].copy()
+        net_change = current_total - previous_total
 
-            if pie_df.empty:
-                st.info(f"{title} 本周无有效收入数据")
-            else:
-                fig_pie = px.pie(
-                    pie_df,
-                    names=dim_name,
-                    values="本周收入",
-                    hole=0.45,
-                    title=title
+        declines = result[
+            result["涨跌金额"] < 0
+        ]
+
+        increases = result[
+            result["涨跌金额"] > 0
+        ]
+
+        total_decline = -declines["涨跌金额"].sum()
+        total_increase = increases["涨跌金额"].sum()
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            current_label,
+            f"${current_total:,.2f}"
+        )
+
+        c2.metric(
+            comparison_label,
+            f"${previous_total:,.2f}"
+        )
+
+        c3.metric(
+            "净收益变化",
+            f"${net_change:,.2f}",
+            delta=f"${net_change:,.2f}"
+        )
+
+        c4.metric(
+            "下降预算数量",
+            f"{len(declines)} 个"
+        )
+
+        st.caption(
+            f"下降预算合计减少 ${total_decline:,.2f}；"
+            f"增长预算合计增加 ${total_increase:,.2f}；"
+            f"最终净变化 ${net_change:,.2f}。"
+        )
+
+        if not declines.empty:
+            biggest = declines.iloc[0]
+
+            st.error(
+                f"📉 下降最多的预算："
+                f"**{biggest['预算']}**，"
+                f"减少 **${abs(biggest['涨跌金额']):,.2f}**。"
+            )
+        else:
+            st.success(
+                "当前没有预算出现收益下降。"
+            )
+
+        only_declines = st.checkbox(
+            "只看收益下降的预算",
+            value=False,
+            key=f"only_declines_{chart_title}"
+        )
+
+        display = (
+            declines.copy()
+            if only_declines
+            else result.copy()
+        )
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                current_label: st.column_config.NumberColumn(
+                    current_label,
+                    format="$%.2f"
+                ),
+                comparison_label: st.column_config.NumberColumn(
+                    comparison_label,
+                    format="$%.2f"
+                ),
+                "涨跌金额": st.column_config.NumberColumn(
+                    "涨跌金额",
+                    format="$%.2f"
+                ),
+                "涨跌比例": st.column_config.NumberColumn(
+                    "涨跌比例",
+                    format="%.2f"
                 )
-                fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-                st.plotly_chart(fig_pie, use_container_width=True)
+            }
+        )
 
-        with c2:
-            st.markdown(f"#### {dim_name}占比 vs 上周")
-            st.dataframe(show_df, use_container_width=True)
+        st.caption(
+            "涨跌比例为小数形式："
+            "-0.20 代表下降 20%；"
+            "上期收入为 0 时不计算比例。"
+        )
+
+        if not display.empty:
+            fig = px.bar(
+                display,
+                x="预算",
+                y="涨跌金额",
+                color="变化状态",
+                color_discrete_map={
+                    "下降": "#e74c3c",
+                    "增长": "#2ecc71",
+                    "持平": "#95a5a6"
+                },
+                title=chart_title,
+                text="涨跌金额"
+            )
+
+            fig.update_traces(
+                texttemplate="%{text:,.2f}",
+                textposition="outside"
+            )
+
+            fig.update_layout(
+                height=420,
+                xaxis_title="预算",
+                yaxis_title="收益变化（USD）"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        csv_data = result.to_csv(
+            index=False
+        ).encode("utf-8-sig")
+
+        st.download_button(
+            "📥 下载预算涨跌明细 CSV",
+            data=csv_data,
+            file_name="渠道预算收益涨跌明细.csv",
+            mime="text/csv",
+            key=f"download_{chart_title}"
+        )
+
+    def render_channel_attribution(
+        selected_day=None,
+        selected_week=None
+    ):
+        st.markdown("---")
+        st.subheader("🔍 渠道收益下滑归因分析")
+
+        st.write(
+            "选择一个渠道，查看具体哪个预算造成"
+            "收益下降，以及下降金额和比例。"
+        )
+
+        default_channel = (
+            all_channels.index("storyreel")
+            if "storyreel" in all_channels
+            else 0
+        )
+
+        channel = st.selectbox(
+            "选择需要排查的渠道",
+            all_channels,
+            index=default_channel,
+            key="attribution_channel"
+        )
+
+        channel_df = df[
+            df["渠道"] == channel
+        ].copy()
+
+        if selected_day is not None:
+            compare_mode = st.radio(
+                "选择对比方式",
+                ["今日 vs 昨日", "今日 vs 上周同日"],
+                horizontal=True,
+                key="attribution_daily_mode"
+            )
+
+            if compare_mode == "今日 vs 昨日":
+                comparison_day = (
+                    selected_day - pd.Timedelta(days=1)
+                )
+            else:
+                comparison_day = (
+                    selected_day - pd.Timedelta(days=7)
+                )
+
+            current_data = channel_df[
+                channel_df["日期"] == selected_day
+            ]
+
+            comparison_data = channel_df[
+                channel_df["日期"] == comparison_day
+            ]
+
+            if comparison_day not in all_dates:
+                st.warning(
+                    f"对比日期 "
+                    f"{comparison_day.strftime('%Y-%m-%d')} "
+                    "没有数据，暂不进行比较。"
+                )
+                return
+
+            st.caption(
+                f"当前日期：{selected_day:%Y-%m-%d} ｜ "
+                f"对比日期：{comparison_day:%Y-%m-%d}"
+            )
+
+            result = get_budget_attribution(
+                current_data,
+                comparison_data,
+                "当日收益",
+                "对比日收益"
+            )
+
+            render_attribution_table(
+                result,
+                "当日收益",
+                "对比日收益",
+                f"{channel} 各预算日收益涨跌"
+            )
+
+        elif selected_week is not None:
+            week_end = selected_week + pd.Timedelta(
+                days=6
+            )
+
+            available_dates = channel_df[
+                (channel_df["日期"] >= selected_week)
+                & (channel_df["日期"] <= week_end)
+            ]["日期"]
+
+            if available_dates.empty:
+                st.info("该渠道在选定周暂无数据。")
+                return
+
+            actual_end = available_dates.max()
+
+            previous_start = (
+                selected_week - pd.Timedelta(days=7)
+            )
+
+            previous_end = (
+                actual_end - pd.Timedelta(days=7)
+            )
+
+            current_data = channel_df[
+                (channel_df["日期"] >= selected_week)
+                & (channel_df["日期"] <= actual_end)
+            ]
+
+            comparison_data = channel_df[
+                (channel_df["日期"] >= previous_start)
+                & (channel_df["日期"] <= previous_end)
+            ]
+
+            # 核查两个时间段的全局数据日期，
+            # 避免上周没有数据时误判为增长。
+            expected_previous_dates = [
+                selected_week
+                + pd.Timedelta(days=i)
+                - pd.Timedelta(days=7)
+                for i in range(
+                    (actual_end - selected_week).days + 1
+                )
+            ]
+
+            missing_previous_dates = [
+                d for d in expected_previous_dates
+                if d not in all_dates
+            ]
+
+            if missing_previous_dates:
+                st.warning(
+                    "上周同期缺少部分日期的数据，"
+                    "暂不计算周度归因。缺失日期："
+                    + ", ".join(
+                        d.strftime("%m-%d")
+                        for d in missing_previous_dates
+                    )
+                )
+                return
+
+            st.caption(
+                f"本周：{selected_week:%Y-%m-%d}"
+                f" ~ {actual_end:%Y-%m-%d} ｜ "
+                f"上周同期：{previous_start:%Y-%m-%d}"
+                f" ~ {previous_end:%Y-%m-%d}"
+            )
+
+            result = get_budget_attribution(
+                current_data,
+                comparison_data,
+                "本周同期收益",
+                "上周同期收益"
+            )
+
+            render_attribution_table(
+                result,
+                "本周同期收益",
+                "上周同期收益",
+                f"{channel} 各预算周收益涨跌"
+            )
 
     # =========================
     # 按日分析
     # =========================
     if analysis_granularity == "按日分析":
-        selected_date_input = st.sidebar.selectbox(
+
+        selected_date = st.sidebar.selectbox(
             "选择查看日期：",
             all_dates,
             index=len(all_dates) - 1,
-            format_func=lambda x: pd.Timestamp(x).strftime("%Y-%m-%d")
+            format_func=lambda x: x.strftime("%Y-%m-%d")
         )
-        selected_date = pd.Timestamp(selected_date_input).normalize()
 
-        prev_date = get_latest_available_before(selected_date)
-        lw_date = get_week_compare_date(selected_date)
+        prev_date = get_latest_available_before(
+            selected_date
+        )
 
-        total_row = get_daily_comp(selected_date, prev_date, lw_date)
+        lw_date = get_week_compare_date(
+            selected_date
+        )
 
-        st.subheader(f"📍 实时概览（按日） {selected_date.strftime('%Y-%m-%d')}")
+        total_row = get_daily_comp(
+            selected_date,
+            prev_date,
+            lw_date
+        )
 
-        prev_label = prev_date.strftime("%Y-%m-%d") if prev_date is not None else "无可用前一日"
-        lw_label = lw_date.strftime("%Y-%m-%d") if lw_date is not None else "无可用上周同日"
+        st.subheader(
+            f"📍 实时概览（按日）"
+            f" {selected_date:%Y-%m-%d}"
+        )
 
-        # 展示顶层数据卡片
+        prev_label = (
+            prev_date.strftime("%Y-%m-%d")
+            if prev_date is not None
+            else "无可用日期"
+        )
+
+        lw_label = (
+            lw_date.strftime("%Y-%m-%d")
+            if lw_date is not None
+            else "无可用日期"
+        )
+
         m1, m2, m3 = st.columns(3)
-        m1.metric("当日总收益", f"¥{total_row['今日'][0]:,.2f}")
+
+        m1.metric(
+            "当日总收益",
+            f"${total_row['今日'].iloc[0]:,.2f}"
+        )
+
         m2.metric(
             f"前一日收益（{prev_label}）",
-            f"¥{total_row['前一日'][0]:,.2f}",
-            delta=f"{total_row['DoD涨跌'][0]:,.2f}"
+            f"${total_row['前一日'].iloc[0]:,.2f}",
+            delta=(
+                f"{total_row['DoD涨跌'].iloc[0]:,.2f}"
+            )
         )
+
         m3.metric(
             f"上周同日收益（{lw_label}）",
-            f"¥{total_row['上周同日'][0]:,.2f}",
-            delta=f"{total_row['WoW涨跌'][0]:,.2f}"
+            f"${total_row['上周同日'].iloc[0]:,.2f}",
+            delta=(
+                f"{total_row['WoW涨跌'].iloc[0]:,.2f}"
+            )
         )
 
-        # --- 新增：按日收益下滑报警 ---
-        today_rev = total_row['今日'][0]
-        prev_rev = total_row['前一日'][0]
+        today_rev = total_row["今日"].iloc[0]
+        prev_rev = total_row["前一日"].iloc[0]
+
         if prev_rev > 0:
-            dod_drop_pct = (prev_rev - today_rev) / prev_rev
-            if dod_drop_pct >= drop_threshold:
-                st.error(f"🚨 **收益暴跌预警：** 选定日期（{selected_date.strftime('%Y-%m-%d')}）的总收益相比前一日骤降 **{dod_drop_pct:.1%}** ！已超过设定的 {drop_threshold_pct}% 预警线，请及时排查追踪异常或渠道问题。")
+            drop_pct = (
+                prev_rev - today_rev
+            ) / prev_rev
+
+            if drop_pct >= drop_threshold:
+                st.error(
+                    f"🚨 总收益较前一日下降 "
+                    f"{drop_pct:.1%}，"
+                    f"超过 {drop_threshold_pct}% 预警线。"
+                )
+
+        # 新增：渠道预算下滑归因
+        render_channel_attribution(
+            selected_day=selected_date
+        )
 
         st.markdown("---")
-        st.subheader(f"📈 {view_mode} 趋势追踪（按日）")
+        st.subheader(
+            f"📈 {view_mode} 趋势追踪（按日）"
+        )
 
         if view_mode == "总收益":
-            plot_df = df.groupby("日期", as_index=False)["收入"].sum()
+            plot_df = df.groupby(
+                "日期", as_index=False
+            )["收入"].sum()
+
             fig = px.line(
                 plot_df,
                 x="日期",
@@ -422,193 +945,365 @@ if password == "123456":
                 markers=True,
                 height=500
             )
-            fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
 
         elif view_mode == "预算维度":
             if not selected_budgets:
-                st.info("请先在左侧选择预算。")
+                st.info("请在左侧选择预算。")
                 st.stop()
 
             plot_df = (
                 df[df["预算"].isin(selected_budgets)]
-                .groupby(["日期", "预算"], as_index=False)["收入"]
-                .sum()
+                .groupby(
+                    ["日期", "预算"],
+                    as_index=False
+                )["收入"].sum()
             )
+
             fig = px.line(
                 plot_df,
                 x="日期",
                 y="收入",
                 color="预算",
-                title="选定预算趋势对比（按日）",
+                title="预算日收益趋势",
                 markers=True,
                 height=600
             )
-            fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
 
         else:
             if not selected_channels:
-                st.info("请先在左侧选择渠道。")
+                st.info("请在左侧选择渠道。")
                 st.stop()
 
             plot_df = (
                 df[df["渠道"].isin(selected_channels)]
-                .groupby(["日期", "渠道"], as_index=False)["收入"]
-                .sum()
+                .groupby(
+                    ["日期", "渠道"],
+                    as_index=False
+                )["收入"].sum()
             )
+
             fig = px.line(
                 plot_df,
                 x="日期",
                 y="收入",
                 color="渠道",
-                title="选定渠道趋势对比（按日）",
+                title="渠道日收益趋势",
                 markers=True,
                 height=600
             )
-            fig.add_vline(x=selected_date, line_dash="dash", line_color="red")
 
-        fig.update_layout(hovermode="x unified")
-        st.plotly_chart(fig, use_container_width=True)
+        fig.add_vline(
+            x=selected_date,
+            line_dash="dash",
+            line_color="red"
+        )
+
+        fig.update_layout(
+            hovermode="x unified"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
         st.markdown("---")
-        st.subheader("🥧 预算 / 渠道占比对比（按日）")
+        st.subheader(
+            "🥧 预算 / 渠道占比对比（按日）"
+        )
 
-        pie_tab1, pie_tab2 = st.tabs(["🍱 预算占比图", "🚀 渠道占比图"])
+        current_day_df = df[
+            df["日期"] == selected_date
+        ]
+
+        previous_day_df = df[
+            df["日期"] == lw_date
+        ] if lw_date is not None else df.iloc[0:0]
+
+        pie_tab1, pie_tab2 = st.tabs([
+            "🍱 预算占比图",
+            "🚀 渠道占比图"
+        ])
 
         with pie_tab1:
-            render_daily_share_pie("预算", "当日预算占比图", selected_date, lw_date)
+            render_share_pie(
+                current_day_df,
+                previous_day_df,
+                "预算",
+                "当日预算占比图",
+                "今日收入",
+                "上周同日收入"
+            )
 
         with pie_tab2:
-            render_daily_share_pie("渠道", "当日渠道占比图", selected_date, lw_date)
+            render_share_pie(
+                current_day_df,
+                previous_day_df,
+                "渠道",
+                "当日渠道占比图",
+                "今日收入",
+                "上周同日收入"
+            )
 
         st.markdown("---")
-        detail_tab1, detail_tab2 = st.tabs(["🍱 预算明细对比", "🚀 渠道明细对比"])
+
+        detail_tab1, detail_tab2 = st.tabs([
+            "🍱 预算明细对比",
+            "🚀 渠道明细对比"
+        ])
 
         with detail_tab1:
-            st.dataframe(get_daily_comp(selected_date, prev_date, lw_date, "预算"), use_container_width=True)
+            st.dataframe(
+                get_daily_comp(
+                    selected_date,
+                    prev_date,
+                    lw_date,
+                    "预算"
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
 
         with detail_tab2:
-            st.dataframe(get_daily_comp(selected_date, prev_date, lw_date, "渠道"), use_container_width=True)
+            st.dataframe(
+                get_daily_comp(
+                    selected_date,
+                    prev_date,
+                    lw_date,
+                    "渠道"
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
 
     # =========================
     # 按周分析
     # =========================
     else:
-        selected_week_input = st.sidebar.selectbox(
+        selected_week = st.sidebar.selectbox(
             "选择查看周（周一）：",
             all_weeks,
             index=len(all_weeks) - 1,
-            format_func=lambda x: f"{pd.Timestamp(x).strftime('%Y-%m-%d')} ~ {(pd.Timestamp(x) + pd.Timedelta(days=6)).strftime('%Y-%m-%d')}"
+            format_func=lambda x: (
+                f"{x:%Y-%m-%d} ~ "
+                f"{x + pd.Timedelta(days=6):%Y-%m-%d}"
+            )
         )
-        selected_week = pd.Timestamp(selected_week_input).normalize()
-        selected_week_end = selected_week + pd.Timedelta(days=6)
 
-        prev_week = get_previous_week(selected_week)
+        selected_week_end = (
+            selected_week + pd.Timedelta(days=6)
+        )
+
+        prev_week = get_previous_week(
+            selected_week
+        )
+
         prev_week_label = (
-            f"{prev_week.strftime('%Y-%m-%d')} ~ {(prev_week + pd.Timedelta(days=6)).strftime('%Y-%m-%d')}"
-            if prev_week is not None else "无可用上周"
+            f"{prev_week:%Y-%m-%d} ~ "
+            f"{prev_week + pd.Timedelta(days=6):%Y-%m-%d}"
+            if prev_week is not None
+            else "无可用上周"
         )
 
-        weekly_total_row = get_weekly_comp(selected_week, prev_week)
+        weekly_total = get_weekly_comp(
+            selected_week,
+            prev_week
+        )
 
         st.subheader(
-            f"📅 周度概览（按周） {selected_week.strftime('%Y-%m-%d')} ~ {selected_week_end.strftime('%Y-%m-%d')}"
+            f"📅 周度概览（按周）"
+            f" {selected_week:%Y-%m-%d}"
+            f" ~ {selected_week_end:%Y-%m-%d}"
         )
 
         m1, m2 = st.columns(2)
-        m1.metric("本周总收益", f"¥{weekly_total_row['本周'][0]:,.2f}")
-        m2.metric(
-            f"上周收益（{prev_week_label}）",
-            f"¥{weekly_total_row['上周'][0]:,.2f}",
-            delta=f"{weekly_total_row['WoW涨跌'][0]:,.2f}"
+
+        m1.metric(
+            "本周总收益",
+            f"${weekly_total['本周'].iloc[0]:,.2f}"
         )
 
-        # --- 新增：按周收益下滑报警 ---
-        this_week_rev = weekly_total_row['本周'][0]
-        last_week_rev = weekly_total_row['上周'][0]
+        m2.metric(
+            f"上周收益（{prev_week_label}）",
+            f"${weekly_total['上周'].iloc[0]:,.2f}",
+            delta=(
+                f"{weekly_total['WoW涨跌'].iloc[0]:,.2f}"
+            )
+        )
+
+        this_week_rev = weekly_total[
+            "本周"
+        ].iloc[0]
+
+        last_week_rev = weekly_total[
+            "上周"
+        ].iloc[0]
+
         if last_week_rev > 0:
-            wow_drop_pct = (last_week_rev - this_week_rev) / last_week_rev
-            if wow_drop_pct >= drop_threshold:
-                st.error(f"🚨 **收益暴跌预警：** 选定周的总收益相比上周骤降 **{wow_drop_pct:.1%}** ！已超过设定的 {drop_threshold_pct}% 预警线，请及时排查异常。")
+            drop_pct = (
+                last_week_rev - this_week_rev
+            ) / last_week_rev
+
+            if drop_pct >= drop_threshold:
+                st.error(
+                    f"🚨 周收益较上周下降 "
+                    f"{drop_pct:.1%}，"
+                    f"超过 {drop_threshold_pct}% 预警线。"
+                )
+
+        # 新增：渠道预算周度下滑归因
+        render_channel_attribution(
+            selected_week=selected_week
+        )
 
         st.markdown("---")
-        st.subheader(f"📈 {view_mode} 趋势追踪（按周）")
+        st.subheader(
+            f"📈 {view_mode} 趋势追踪（按周）"
+        )
 
         if view_mode == "总收益":
-            weekly_plot_df = df.groupby("周开始", as_index=False)["收入"].sum()
-            fig_weekly = px.line(
-                weekly_plot_df,
+            plot_df = df.groupby(
+                "周开始", as_index=False
+            )["收入"].sum()
+
+            fig = px.line(
+                plot_df,
                 x="周开始",
                 y="收入",
                 title="总收益周趋势",
                 markers=True,
                 height=500
             )
-            fig_weekly.add_vline(x=selected_week, line_dash="dash", line_color="red")
 
         elif view_mode == "预算维度":
             if not selected_budgets:
-                st.info("请先在左侧选择预算。")
+                st.info("请在左侧选择预算。")
                 st.stop()
 
-            weekly_plot_df = (
+            plot_df = (
                 df[df["预算"].isin(selected_budgets)]
-                .groupby(["周开始", "预算"], as_index=False)["收入"]
-                .sum()
+                .groupby(
+                    ["周开始", "预算"],
+                    as_index=False
+                )["收入"].sum()
             )
-            fig_weekly = px.line(
-                weekly_plot_df,
+
+            fig = px.line(
+                plot_df,
                 x="周开始",
                 y="收入",
                 color="预算",
-                title="选定预算趋势对比（按周）",
+                title="预算周收益趋势",
                 markers=True,
                 height=600
             )
-            fig_weekly.add_vline(x=selected_week, line_dash="dash", line_color="red")
 
         else:
             if not selected_channels:
-                st.info("请先在左侧选择渠道。")
+                st.info("请在左侧选择渠道。")
                 st.stop()
 
-            weekly_plot_df = (
+            plot_df = (
                 df[df["渠道"].isin(selected_channels)]
-                .groupby(["周开始", "渠道"], as_index=False)["收入"]
-                .sum()
+                .groupby(
+                    ["周开始", "渠道"],
+                    as_index=False
+                )["收入"].sum()
             )
-            fig_weekly = px.line(
-                weekly_plot_df,
+
+            fig = px.line(
+                plot_df,
                 x="周开始",
                 y="收入",
                 color="渠道",
-                title="选定渠道趋势对比（按周）",
+                title="渠道周收益趋势",
                 markers=True,
                 height=600
             )
-            fig_weekly.add_vline(x=selected_week, line_dash="dash", line_color="red")
 
-        fig_weekly.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_weekly, use_container_width=True)
+        fig.add_vline(
+            x=selected_week,
+            line_dash="dash",
+            line_color="red"
+        )
+
+        fig.update_layout(
+            hovermode="x unified"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
         st.markdown("---")
-        st.subheader("🥧 预算 / 渠道占比对比（按周）")
+        st.subheader(
+            "🥧 预算 / 渠道占比对比（按周）"
+        )
 
-        pie_tab1, pie_tab2 = st.tabs(["🍱 预算周占比图", "🚀 渠道周占比图"])
+        current_week_df = df[
+            df["周开始"] == selected_week
+        ]
+
+        previous_week_df = (
+            df[df["周开始"] == prev_week]
+            if prev_week is not None
+            else df.iloc[0:0]
+        )
+
+        pie_tab1, pie_tab2 = st.tabs([
+            "🍱 预算周占比图",
+            "🚀 渠道周占比图"
+        ])
 
         with pie_tab1:
-            render_weekly_share_pie("预算", "本周预算占比图", selected_week, prev_week)
+            render_share_pie(
+                current_week_df,
+                previous_week_df,
+                "预算",
+                "本周预算占比图",
+                "本周收入",
+                "上周收入"
+            )
 
         with pie_tab2:
-            render_weekly_share_pie("渠道", "本周渠道占比图", selected_week, prev_week)
+            render_share_pie(
+                current_week_df,
+                previous_week_df,
+                "渠道",
+                "本周渠道占比图",
+                "本周收入",
+                "上周收入"
+            )
 
         st.markdown("---")
-        detail_tab1, detail_tab2 = st.tabs(["🍱 预算周明细对比", "🚀 渠道周明细对比"])
+
+        detail_tab1, detail_tab2 = st.tabs([
+            "🍱 预算周明细对比",
+            "🚀 渠道周明细对比"
+        ])
 
         with detail_tab1:
-            st.dataframe(get_weekly_comp(selected_week, prev_week, "预算"), use_container_width=True)
+            st.dataframe(
+                get_weekly_comp(
+                    selected_week,
+                    prev_week,
+                    "预算"
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
 
         with detail_tab2:
-            st.dataframe(get_weekly_comp(selected_week, prev_week, "渠道"), use_container_width=True)
+            st.dataframe(
+                get_weekly_comp(
+                    selected_week,
+                    prev_week,
+                    "渠道"
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
 
 else:
     st.warning("👈 请在左侧输入密码解锁看板")
